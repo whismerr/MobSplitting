@@ -3,7 +3,7 @@ package io.github.whismerr.mobsplitting;
 import java.util.OptionalInt;
 
 /**
- * Pure generation and scale rules for mob splitting.
+ * Pure generation, scale, health and speed rules for mob splitting.
  *
  * <p>This class has no Bukkit dependencies so it can be unit tested without a server.
  *
@@ -26,6 +26,17 @@ public final class SplitRules {
     public static final double MIN_SCALE = 0.0625;
     /** Largest value accepted by the vanilla minecraft:scale attribute. */
     public static final double MAX_SCALE = 16.0;
+
+    /** Each generation has this fraction of its parent's maximum health. */
+    public static final double HEALTH_FACTOR_PER_GENERATION = 0.5;
+    /** Each generation moves this much faster, as a fraction of the ORIGINAL mob's base speed. */
+    public static final double SPEED_BONUS_PER_GENERATION = 0.25;
+    /** Smallest value accepted by the vanilla minecraft:max_health attribute. */
+    public static final double MIN_MAX_HEALTH = 1.0;
+    /** Largest value accepted by the vanilla minecraft:max_health attribute. */
+    public static final double MAX_MAX_HEALTH = 1024.0;
+    /** Largest value accepted by the vanilla minecraft:movement_speed attribute. */
+    public static final double MAX_MOVEMENT_SPEED = 1024.0;
 
     private SplitRules() {
     }
@@ -101,5 +112,92 @@ public final class SplitRules {
             count *= OFFSPRING_PER_SPLIT;
         }
         return count;
+    }
+
+    /**
+     * Returns the maximum-health factor of a stage relative to the original mob: 1, 0.5, 0.25.
+     *
+     * @throws IllegalArgumentException if the stage is not 1, 2 or 3
+     */
+    public static double stageHealthFactor(int stage) {
+        return Math.pow(HEALTH_FACTOR_PER_GENERATION, generationsAfterOriginal(stage));
+    }
+
+    /**
+     * Returns the movement-speed factor of a stage relative to the original mob: 1, 1.25, 1.5.
+     *
+     * @throws IllegalArgumentException if the stage is not 1, 2 or 3
+     */
+    public static double stageSpeedFactor(int stage) {
+        return 1.0 + SPEED_BONUS_PER_GENERATION * generationsAfterOriginal(stage);
+    }
+
+    /**
+     * Computes the absolute maximum health for an offspring.
+     *
+     * @param originMaxHealth the maximum health of the original stage-1 mob; must be finite and positive
+     * @param childStage the offspring's stage (2 or 3)
+     * @return the maximum health, clamped to the range accepted by Minecraft
+     */
+    public static double childMaxHealth(double originMaxHealth, int childStage) {
+        if (!isValidHealth(originMaxHealth)) {
+            throw new IllegalArgumentException("Invalid origin max health: " + originMaxHealth);
+        }
+        double health = originMaxHealth * stageHealthFactor(childStage);
+        return Math.max(MIN_MAX_HEALTH, Math.min(MAX_MAX_HEALTH, health));
+    }
+
+    /**
+     * Computes the absolute base movement speed for an offspring.
+     *
+     * @param originSpeed the base movement speed of the original stage-1 mob; must be finite and not negative
+     * @param childStage the offspring's stage (2 or 3)
+     * @return the speed, clamped to the range accepted by Minecraft
+     */
+    public static double childMovementSpeed(double originSpeed, int childStage) {
+        if (!isValidSpeed(originSpeed)) {
+            throw new IllegalArgumentException("Invalid origin movement speed: " + originSpeed);
+        }
+        return Math.min(MAX_MOVEMENT_SPEED, originSpeed * stageSpeedFactor(childStage));
+    }
+
+    /**
+     * Picks the original mob's maximum health from a stored value, falling back to {@code fallback}
+     * (the parent's own value, correct for originals and for offspring made before health was scaled).
+     *
+     * @return the origin value, or {@link Double#NaN} if neither value is usable
+     */
+    public static double resolveOriginHealth(Double stored, double fallback) {
+        if (stored != null && isValidHealth(stored)) {
+            return stored;
+        }
+        return isValidHealth(fallback) ? fallback : Double.NaN;
+    }
+
+    /**
+     * Picks the original mob's base movement speed; see {@link #resolveOriginHealth}.
+     *
+     * @return the origin value, or {@link Double#NaN} if neither value is usable
+     */
+    public static double resolveOriginSpeed(Double stored, double fallback) {
+        if (stored != null && isValidSpeed(stored)) {
+            return stored;
+        }
+        return isValidSpeed(fallback) ? fallback : Double.NaN;
+    }
+
+    private static boolean isValidHealth(double health) {
+        return Double.isFinite(health) && health > 0;
+    }
+
+    private static boolean isValidSpeed(double speed) {
+        return Double.isFinite(speed) && speed >= 0;
+    }
+
+    private static int generationsAfterOriginal(int stage) {
+        if (stage < ORIGINAL_STAGE || stage > FINAL_STAGE) {
+            throw new IllegalArgumentException("Invalid stage: " + stage);
+        }
+        return stage - ORIGINAL_STAGE;
     }
 }

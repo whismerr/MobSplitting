@@ -13,12 +13,18 @@ public final class SplitKeys {
     private final NamespacedKey stage;
     /** Double scale of the original stage-1 mob, so stage 3 is sized relative to it. */
     private final NamespacedKey originScale;
+    /** Double maximum health of the original stage-1 mob, so every stage is sized relative to it. */
+    private final NamespacedKey originMaxHealth;
+    /** Double base movement speed of the original stage-1 mob, so speed bonuses never compound. */
+    private final NamespacedKey originSpeed;
     /** Byte flag set on a mob as soon as it splits, so it can never split twice. */
     private final NamespacedKey splitDone;
 
     public SplitKeys(Plugin plugin) {
         this.stage = new NamespacedKey(plugin, "stage");
         this.originScale = new NamespacedKey(plugin, "origin_scale");
+        this.originMaxHealth = new NamespacedKey(plugin, "origin_max_health");
+        this.originSpeed = new NamespacedKey(plugin, "origin_speed");
         this.splitDone = new NamespacedKey(plugin, "split_done");
     }
 
@@ -28,6 +34,14 @@ public final class SplitKeys {
 
     public NamespacedKey originScale() {
         return originScale;
+    }
+
+    public NamespacedKey originMaxHealth() {
+        return originMaxHealth;
+    }
+
+    public NamespacedKey originSpeed() {
+        return originSpeed;
     }
 
     public NamespacedKey splitDone() {

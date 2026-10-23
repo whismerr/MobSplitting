@@ -19,7 +19,7 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.BoundingBox;
 
-/** Spawns, positions, sizes and tags the offspring of a dying mob. */
+/** Spawns, positions, sizes, strengthens and tags the offspring of a dying mob. */
 final class OffspringSpawner {
 
     private final Logger logger;
@@ -28,6 +28,8 @@ final class OffspringSpawner {
     private final Set<EntityType> unspawnableTypes = EnumSet.noneOf(EntityType.class);
     /** Types already reported as "cannot be resized", so each is logged only once. */
     private final Set<EntityType> unscalableTypes = EnumSet.noneOf(EntityType.class);
+    /** Types already reported as missing max health or movement speed, so each is logged only once. */
+    private final Set<EntityType> missingStatTypes = EnumSet.noneOf(EntityType.class);
 
     OffspringSpawner(Logger logger, SplitKeys keys) {
         this.logger = logger;
@@ -60,6 +62,7 @@ final class OffspringSpawner {
         double childScale = SplitRules.childScale(originScale, childStage, config.stage2Scale(), config.stage3Scale());
         double parentScale = currentScale(parent);
         double ratio = parentScale > 0 ? childScale / parentScale : 1.0;
+        OriginStats originStats = readOriginStats(parent, parentStage);
 
         // Estimate the offspring's hitbox from the parent's, for collision checks.
         BoundingBox parentBox = parent.getBoundingBox();
@@ -73,7 +76,8 @@ final class OffspringSpawner {
             // Offspring are placed on opposite sides of where the parent died.
             double angle = baseAngle + i * (Math.PI * 2 / SplitRules.OFFSPRING_PER_SPLIT);
             Location spot = findSpot(world, origin, angle, spacing, halfWidth, height);
-            Mob child = spawnOne(world, spot, entityClass, parent, childStage, originScale, childScale, config);
+            Mob child = spawnOne(world, spot, entityClass, parent, childStage, originScale, childScale,
+                    originStats, config);
             if (child == null) {
                 if (unspawnableTypes.contains(type)) {
                     break;
@@ -89,13 +93,14 @@ final class OffspringSpawner {
     }
 
     private Mob spawnOne(World world, Location spot, Class<? extends Entity> entityClass, Mob parent,
-                         int childStage, double originScale, double childScale, SplitConfig config) {
+                         int childStage, double originScale, double childScale, OriginStats origin,
+                         SplitConfig config) {
         EntityType type = parent.getType();
         try {
             // randomizeData = false: no random jockeys, variants or gear. Properties come from the parent.
             // The consumer runs BEFORE the entity is added to the world, so it is never seen untagged.
             Entity entity = world.spawn(spot, entityClass, false,
-                    created -> configure(created, parent, childStage, originScale, childScale, config));
+                    created -> configure(created, parent, childStage, originScale, childScale, origin, config));
             if (!(entity instanceof Mob mob)) {
                 entity.remove();
                 return null;
@@ -111,16 +116,24 @@ final class OffspringSpawner {
     }
 
     private void configure(Entity created, Mob parent, int childStage, double originScale,
-                           double childScale, SplitConfig config) {
+                           double childScale, OriginStats origin, SplitConfig config) {
         if (!(created instanceof Mob child)) {
             return;
         }
         PersistentDataContainer data = child.getPersistentDataContainer();
         data.set(keys.stage(), PersistentDataType.INTEGER, childStage);
         data.set(keys.originScale(), PersistentDataType.DOUBLE, originScale);
+        if (!Double.isNaN(origin.maxHealth())) {
+            data.set(keys.originMaxHealth(), PersistentDataType.DOUBLE, origin.maxHealth());
+        }
+        if (!Double.isNaN(origin.speed())) {
+            data.set(keys.originSpeed(), PersistentDataType.DOUBLE, origin.speed());
+        }
 
         PropertyCopier.copy(parent, child, config, logger);
         applySize(child, childScale, config);
+        // After copying, so equipment and baby state are in place when the final health is set.
+        applyStats(child, childStage, origin);
         child.setRemoveWhenFarAway(parent.getRemoveWhenFarAway());
     }
 
@@ -140,6 +153,54 @@ final class OffspringSpawner {
                     + (config.useScaleAttribute() ? " (no scale attribute)" : "")
                     + " and has no baby form; it spawns at normal size.");
         }
+    }
+
+    /**
+     * Sets maximum health, current health and base movement speed from the ORIGINAL mob's values.
+     *
+     * <p>Values are written as absolute base values, never multiplied onto what the child already
+     * has. This runs only once, inside the spawn consumer, so chunk reloads and restarts (which
+     * restore the saved attributes) can never apply it twice. Modifiers such as the baby speed
+     * bonus are left untouched.
+     */
+    private void applyStats(Mob child, int childStage, OriginStats origin) {
+        AttributeInstance maxHealth = child.getAttribute(Attribute.MAX_HEALTH);
+        AttributeInstance speed = child.getAttribute(Attribute.MOVEMENT_SPEED);
+        if ((maxHealth == null || Double.isNaN(origin.maxHealth())
+                || speed == null || Double.isNaN(origin.speed()))
+                && missingStatTypes.add(child.getType())) {
+            logger.info(child.getType() + " offspring is missing max health or movement speed;"
+                    + " the missing value keeps its default.");
+        }
+        if (maxHealth != null && !Double.isNaN(origin.maxHealth())) {
+            double target = SplitRules.childMaxHealth(origin.maxHealth(), childStage);
+            maxHealth.setBaseValue(target);
+            // Full health at the new maximum; getValue() includes modifiers, so this never exceeds it.
+            child.setHealth(Math.min(target, maxHealth.getValue()));
+        }
+        if (speed != null && !Double.isNaN(origin.speed())) {
+            speed.setBaseValue(SplitRules.childMovementSpeed(origin.speed(), childStage));
+        }
+    }
+
+    /**
+     * Reads the original mob's max health and base speed: from the parent itself if it is an
+     * original, otherwise from its stored values. Offspring made by older versions of the plugin
+     * have no stored values but were never changed, so their own values are the original ones.
+     */
+    private OriginStats readOriginStats(Mob parent, int parentStage) {
+        AttributeInstance maxHealth = parent.getAttribute(Attribute.MAX_HEALTH);
+        AttributeInstance speed = parent.getAttribute(Attribute.MOVEMENT_SPEED);
+        double parentMaxHealth = maxHealth != null ? maxHealth.getValue() : Double.NaN;
+        double parentSpeed = speed != null ? speed.getBaseValue() : Double.NaN;
+        if (parentStage == SplitRules.ORIGINAL_STAGE) {
+            return new OriginStats(SplitRules.resolveOriginHealth(null, parentMaxHealth),
+                    SplitRules.resolveOriginSpeed(null, parentSpeed));
+        }
+        PersistentDataContainer data = parent.getPersistentDataContainer();
+        return new OriginStats(
+                SplitRules.resolveOriginHealth(data.get(keys.originMaxHealth(), PersistentDataType.DOUBLE), parentMaxHealth),
+                SplitRules.resolveOriginSpeed(data.get(keys.originSpeed(), PersistentDataType.DOUBLE), parentSpeed));
     }
 
     private Location findSpot(World world, Location origin, double angle, double spacing,
@@ -193,5 +254,9 @@ final class OffspringSpawner {
 
     private static float randomYaw() {
         return ThreadLocalRandom.current().nextFloat() * 360f - 180f;
+    }
+
+    /** The original stage-1 mob's max health and base movement speed; NaN when unavailable. */
+    private record OriginStats(double maxHealth, double speed) {
     }
 }

@@ -4,9 +4,9 @@ A Paper plugin for Minecraft Java Edition **1.21.8**. When a mob dies it splits 
 smaller copies of itself, and each of those splits once more:
 
 ```
-1 original (stage 1, normal size)
-└── dies → 2 stage-2 mobs (65% of the original size)
-    └── each dies → 2 stage-3 mobs (40% of the original size) → never split
+1 original (stage 1, normal size, health and speed)
+└── dies → 2 stage-2 mobs (65% size, 50% max health, 125% speed)
+    └── each dies → 2 stage-3 mobs (40% size, 25% max health, 150% speed) → never split
 ```
 
 Killing one original mob means killing 7 mobs in total: 1 + 2 + 4.
@@ -59,6 +59,17 @@ Every option is explained in comments inside `config.yml`. The main ones:
   (`Attribute.SCALE` in the Paper API). The plugin sets it so the model **and** hitbox shrink.
   Stage 3 is measured against the original, so an original that was already scaled to 2.0
   produces 1.3 then 0.8. Values are clamped to Minecraft's allowed range of 0.0625 to 16.
+- **Health and speed.** Each generation has half its parent's maximum health: stage 2 gets 50%
+  and stage 3 gets 25% of the original's maximum health (its real value, including modifiers,
+  so a 20-health zombie gives 10 then 5, and a 100-health iron golem gives 50 then 25).
+  Offspring spawn at full health for their new maximum. Base movement speed is 125% (stage 2)
+  and 150% (stage 3) of the original's base speed. Both are calculated from the original's
+  values, which are saved on each offspring as `mobsplitting:origin_max_health` and
+  `mobsplitting:origin_speed`, so speed never compounds (1.5x, not 1.25 × 1.25). They're set
+  once, as absolute base values, when the offspring spawns. Chunk unloads and restarts just
+  restore the saved attributes, so nothing is multiplied twice. Other attribute modifiers, such
+  as the baby speed bonus, are left alone. Values are clamped to Minecraft's limits (max health
+  at least 1). Flying speed isn't changed.
 - **Fallbacks.** If a mob has no scale attribute, or you disable it, the plugin spawns a baby
   for mobs that have one. Otherwise the offspring keeps normal size and the server log says so
   once per mob type. The plugin never claims a mob shrank when it didn't.
@@ -68,7 +79,7 @@ Every option is explained in comments inside `config.yml`. The main ones:
   profession), charged creepers, slime and phantom size, screaming goats, pet owner (when pets
   may split), and held items and armour.
 - **Not copied:** chest contents, saddles, horse, wolf and llama body armour, villager trades,
-  and health. Offspring spawn at full health.
+  and current health. Offspring spawn at full health for their reduced maximum.
 - **Spawning.** The two offspring appear on opposite sides of the parent, at a random angle. If
   a spot is inside a block, the plugin tries a closer spot, then the parent's own position.
   Vanilla spawn randomisation is turned off, so there are no surprise chicken jockeys or
@@ -100,7 +111,10 @@ Two vanilla rules still apply:
   such as Citizens) are always excluded.
 - Mobs created by vanilla mechanics, such as zombie reinforcements or a spider jockey's
   skeleton, are new originals and can split too.
-- Scaling changes size, not health or damage. Offspring have their normal health.
+- Offspring have less health and more speed (see *How it works*), but their normal attack
+  damage.
+- Offspring created by an older version of this plugin have no saved original values. When
+  they split, their own unchanged health and speed count as the original's.
 - Mobs that die below the world's minimum height (the void) don't split.
 - A mob type that throws an error when spawned is logged once and stops splitting until the
   server restarts.
@@ -114,7 +128,7 @@ gradlew build        # Windows: .\gradlew.bat build
 
 This produces `build/libs/MobSplitting-1.0.0.jar` and runs the unit tests in
 `src/test/java`. The tests cover the generation rules: 1 → 2 → 4 and then stop, corrupt
-markers, and scale maths. They don't need a server.
+markers, scale maths, and the health and speed maths for stages 2 and 3. They don't need a server.
 
 ## Manual in-game test checklist
 
@@ -122,6 +136,8 @@ Run these on a local test server, not your main world.
 
 1. `/summon zombie ~ ~ ~5`, then kill it. **Expect:** 2 smaller zombies (65%).
 2. Kill one of them. **Expect:** 2 even smaller zombies (40%).
+   Check health and speed with `/attribute @e[type=zombie,limit=1,sort=nearest] minecraft:max_health get`
+   and `... minecraft:movement_speed base get`. **Expect:** stage 2 = 10 and 0.2875, stage 3 = 5 and 0.345.
 3. Kill a stage-3 zombie. **Expect:** nothing spawns.
 4. Kill a named sheep with coloured wool. **Expect:** the offspring keep the name and colour.
 5. Kill a skeleton. **Expect:** the offspring hold bows, and killing them drops bones and
