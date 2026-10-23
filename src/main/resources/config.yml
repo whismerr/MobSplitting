@@ -1,0 +1,69 @@
+# MobSplitting configuration
+#
+# An original mob (stage 1) splits into 2 stage-2 mobs when it dies.
+# Each stage-2 mob splits into 2 stage-3 mobs when it dies.
+# Stage-3 mobs never split. The number of generations is fixed by design.
+#
+# After editing this file, run /mobsplitting reload (or restart the server).
+
+# Master switch. false = no mob splits.
+enabled: true
+
+scale:
+  # Use the vanilla minecraft:scale attribute to really shrink offspring
+  # (model and hitbox). Works for every living mob in 1.21.8, no client mods needed.
+  use-scale-attribute: true
+  # Size of each stage RELATIVE TO THE ORIGINAL mob (1.0 = same size).
+  # Allowed range: 0.0625 to 16.0.
+  stage-2: 0.65
+  stage-3: 0.4
+  # If a mob cannot be scaled (or use-scale-attribute is false), spawn it as a
+  # baby instead when that mob type has a baby form. Otherwise it keeps normal size.
+  baby-fallback: true
+
+offspring:
+  # Copy the custom name (name tag) of the parent to its offspring.
+  copy-names: true
+  # Give offspring copies of the parent's held items and armour (for example a
+  # skeleton's bow). Copies ALWAYS have a 0% drop chance so items are never duplicated.
+  copy-equipment: true
+  # Hostile offspring attack whatever the parent was attacking (or its killer).
+  inherit-target: true
+
+# Mob types that never split. Use Bukkit EntityType names:
+# https://jd.papermc.io/paper/1.21.8/org/bukkit/entity/EntityType.html
+# Players, armour stands, non-living entities and plugin NPCs (e.g. Citizens)
+# are always excluded and do not need to be listed.
+excluded-mobs:
+  - ENDER_DRAGON      # boss
+  - WITHER            # boss
+  - ELDER_GUARDIAN    # mini-boss
+  - WARDEN            # mini-boss
+  - VILLAGER          # NPC-like, has trades
+  - WANDERING_TRADER  # NPC-like, has trades
+  - SLIME             # already splits in vanilla
+  - MAGMA_CUBE        # already splits in vanilla
+
+# Worlds where splitting is disabled (world folder names, case-insensitive).
+excluded-worlds: []
+
+# Mobs that were spawned for one of these reasons never split (only checked for
+# original, stage-1 mobs). Example values: SPAWNER, SPAWNER_EGG, BREEDING, COMMAND.
+# Full list: https://jd.papermc.io/paper/1.21.8/org/bukkit/event/entity/CreatureSpawnEvent.SpawnReason.html
+excluded-spawn-reasons: []
+
+# Should tamed pets (dogs, cats, parrots, horses...) split? Offspring keep the owner.
+split-tamed-pets: false
+
+# true = only mobs killed by a player split.
+require-player-kill: false
+
+performance:
+  # Skip splitting if this many mobs are already within nearby-radius blocks.
+  max-nearby-mobs: 80
+  nearby-radius: 16.0
+  # Maximum number of splits per server tick (protects against mass kills).
+  max-splits-per-tick: 20
+
+# Log extra details about every split and skip.
+debug: false

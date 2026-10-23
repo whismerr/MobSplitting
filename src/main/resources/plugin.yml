@@ -1,0 +1,18 @@
+name: MobSplitting
+version: '${version}'
+main: io.github.whismerr.mobsplitting.MobSplittingPlugin
+api-version: '1.21'
+description: Mobs split into two smaller copies when they die, for two generations.
+author: Whismerr
+
+commands:
+  mobsplitting:
+    description: Show MobSplitting status or reload its configuration.
+    usage: /<command> <info|reload>
+    aliases: [msplit]
+    permission: mobsplitting.admin
+
+permissions:
+  mobsplitting.admin:
+    description: Allows use of /mobsplitting info and /mobsplitting reload.
+    default: op
